@@ -111,6 +111,21 @@
   .ftitle{font-weight:600; font-size:14px;}
   .ffix{color:var(--muted); font-size:13px; margin-top:5px;}
 
+  /* flagged email preview */
+  .flagged{margin-top:20px;}
+  .flaggedbody{font-family:var(--mono); font-size:12.5px; line-height:1.75; color:var(--ink);
+    white-space:pre-wrap; word-break:break-word; background:#FCFDFE; border:1px solid var(--line);
+    border-radius:10px; padding:12px 14px; max-height:260px; overflow:auto; margin-top:4px;}
+  .flaggedbody mark{border-radius:4px; padding:0 2px; color:inherit; background:transparent;}
+  .flaggedbody mark.hl-high{background:var(--fail-weak); color:var(--fail); box-shadow:inset 0 -2px 0 var(--fail);}
+  .flaggedbody mark.hl-medium{background:var(--warn-weak); color:var(--warn); box-shadow:inset 0 -2px 0 var(--warn);}
+  .flaggedbody mark.hl-low{background:var(--brand-weak); color:var(--brand); box-shadow:inset 0 -2px 0 var(--brand);}
+  .flegend{display:flex; gap:14px; flex-wrap:wrap; margin-top:9px; font-family:var(--mono); font-size:10.5px;
+    letter-spacing:.03em; text-transform:uppercase; color:var(--faint);}
+  .flegend span{display:inline-flex; align-items:center; gap:6px;}
+  .flegend i{width:10px; height:10px; border-radius:3px; display:inline-block;}
+  .flegend .i-high{background:var(--fail);} .flegend .i-medium{background:var(--warn);} .flegend .i-low{background:var(--brand);}
+
   /* how it works */
   .how{margin-top:26px;}
   details.how{border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:0 16px;}
@@ -203,6 +218,7 @@
         <div class="meter"><span class="marker" id="marker" style="left:0%"></span></div>
         <div class="zones"><span>Spam</span><span>Promotions</span><span>Primary inbox</span></div>
         <div class="readout" id="readout"></div>
+        <div class="flagged" id="flagged" style="display:none"></div>
         <div class="findings" id="findings"></div>
       </div>
     </section>
@@ -244,7 +260,7 @@ const $=id=>document.getElementById(id);
 const subjectEl=$("subject"), bodyEl=$("body"), wcEl=$("wc");
 const emptyEl=$("empty"), resultEl=$("result");
 const scoreNumEl=$("scoreNum"), gradeTextEl=$("gradeText"), markerEl=$("marker"),
-      readoutEl=$("readout"), findingsEl=$("findings");
+      readoutEl=$("readout"), findingsEl=$("findings"), flaggedEl=$("flagged");
 const bandColor={pass:"var(--pass)",warn:"var(--warn)",fail:"var(--fail)"};
 const reduceMotion=window.matchMedia("(prefers-reduced-motion:reduce)").matches;
 
@@ -256,6 +272,43 @@ function updateWordCount(){
 bodyEl.addEventListener("input",updateWordCount);
 
 function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+// Build a read-only copy of the scanned email text with each finding's matched
+// terms wrapped in a colored mark. Colors match the finding severity. Where two
+// findings cover the same characters, the stronger severity wins.
+function sevRank(s){return s==="high"?3:s==="medium"?2:s==="low"?1:0;}
+function buildFlagged(visible, findings){
+  if(!visible) return "";
+  const marks=new Array(visible.length).fill(0);
+  const low=visible.toLowerCase();
+  let any=false;
+  for(const f of findings){
+    if(!f||!f.terms||!f.terms.length) continue;
+    const rank=sevRank(f.severity);
+    if(!rank) continue;
+    for(const term of f.terms){
+      const t=(""+term).toLowerCase();
+      if(!t) continue;
+      let i=low.indexOf(t);
+      while(i!==-1){
+        any=true;
+        for(let k=i;k<i+t.length;k++) marks[k]=Math.max(marks[k],rank);
+        i=low.indexOf(t,i+t.length);
+      }
+    }
+  }
+  if(!any) return "";
+  const cls={3:"hl-high",2:"hl-medium",1:"hl-low"};
+  let out="", i=0;
+  while(i<visible.length){
+    const rank=marks[i]; let j=i;
+    while(j<visible.length&&marks[j]===rank) j++;
+    const chunk=esc(visible.slice(i,j));
+    out+= rank ? `<mark class="${cls[rank]}">${chunk}</mark>` : chunk;
+    i=j;
+  }
+  return out;
+}
 
 function render(r){
   emptyEl.style.display="none";
@@ -269,6 +322,21 @@ function render(r){
     `<span>words <b>${r.stats.wordCount}</b></span>`+
     `<span>links <b>${r.stats.linkCount}</b></span>`+
     `<span>format <b>${r.stats.isHtml?"HTML":"plain text"}</b></span>`;
+
+  // flagged email preview: show the offending text, colored by severity
+  const flaggedHtml=buildFlagged(r.visible, r.findings);
+  if(flaggedHtml){
+    flaggedEl.style.display="block";
+    flaggedEl.innerHTML=
+      `<div class="fhead">Your email, issues flagged</div>`+
+      `<div class="flaggedbody">${flaggedHtml}</div>`+
+      `<div class="flegend"><span><i class="i-high"></i>high</span>`+
+      `<span><i class="i-medium"></i>medium</span>`+
+      `<span><i class="i-low"></i>low</span></div>`;
+  } else {
+    flaggedEl.style.display="none";
+    flaggedEl.innerHTML="";
+  }
 
   // findings
   const issues=r.findings.filter(f=>f.severity!=="good");

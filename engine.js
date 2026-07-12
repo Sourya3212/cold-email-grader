@@ -24,7 +24,7 @@ function analyze(subjectRaw, bodyRaw){
   const sentences=visible.split(/[.!?]+/).map(s=>s.trim()).filter(Boolean);
   const sentenceCount=Math.max(sentences.length,1);
   const findings=[]; let score=100;
-  function penalize(pts,severity,title,fix){const p=Math.round(pts); score-=p; findings.push({severity,title,fix,penalty:p});}
+  function penalize(pts,severity,title,fix,terms){const p=Math.round(pts); score-=p; findings.push({severity,title,fix,penalty:p,terms:terms||[]});}
   const pendingNotes=[]; function note(title,fix){pendingNotes.push({severity:"good",title,fix,penalty:0});}
 
   let hitHigh=[]; for(const w of HIGH_SPAM_WORDS) if(haystack.includes(w)) hitHigh.push(w);
@@ -35,20 +35,23 @@ function analyze(subjectRaw, bodyRaw){
     const shown=[...hitHigh,...hitMed].slice(0,6); const tot=hitHigh.length+hitMed.length;
     const sev=hitHigh.length>=2?"high":"medium";
     penalize(spamPenalty,sev,`${tot} spam-trigger word${tot>1?"s":""} found`,
-      `Filters keep running lists of sales-y words. Rewrite or cut these: ${shown.join(", ")}${tot>6?", and more":""}. Say the same thing in plain, specific language.`);
+      `Filters keep running lists of sales-y words. Rewrite or cut these: ${shown.join(", ")}${tot>6?", and more":""}. Say the same thing in plain, specific language.`,
+      [...hitHigh,...hitMed]);
   }
 
   const mergeRe=/(\{\{[^}]*\}\}|\[\[?[A-Za-z0-9_ .-]{2,}\]?\]|%[A-Za-z0-9_]+%|\*\|[^|]+\|\*|\$\{[^}]+\})/g;
   const merges=(subject+" "+visible).match(mergeRe);
   if(merges&&merges.length){
     penalize(15,"high","Unfilled personalization tag",
-      `A merge field never got replaced (${merges.slice(0,3).join(", ")}). It tells the reader this was a mass blast, and tells filters the same thing. Fix the mail-merge mapping so every field fills.`);
+      `A merge field never got replaced (${merges.slice(0,3).join(", ")}). It tells the reader this was a mass blast, and tells filters the same thing. Fix the mail-merge mapping so every field fills.`,
+      merges);
   }
 
   const homo=[]; for(const ch of (subject+visible)) if(HOMOGLYPHS.includes(ch)) homo.push(ch);
   if(homo.length){
     penalize(18,"high","Hidden lookalike characters",
-      `Found ${homo.length} non-standard character${homo.length>1?"s":""} that mimic normal letters, for example a Cyrillic letter posing as a Latin one. This is a known filter-evasion trick, so filters hunt for it. Retype the affected words in plain English.`);
+      `Found ${homo.length} non-standard character${homo.length>1?"s":""} that mimic normal letters, for example a Cyrillic letter posing as a Latin one. This is a known filter-evasion trick, so filters hunt for it. Retype the affected words in plain English.`,
+      homo);
   }
 
   if(isHtml){
@@ -67,14 +70,15 @@ function analyze(subjectRaw, bodyRaw){
 
   const urlRe=/(https?:\/\/[^\s"'<>)]+|www\.[^\s"'<>)]+)/gi;
   const urls=(bodyRawTrim.match(urlRe)||[]); const linkCount=urls.length;
-  const usedShortener=urls.some(u=>SHORTENERS.some(s=>u.toLowerCase().includes(s)));
-  if(usedShortener){ penalize(14,"high","Link shortener detected","A shortened link (like bit.ly) hides where it really goes, which is exactly what filters distrust. Use a full, branded link on your own domain."); }
+  const shortenerUrls=urls.filter(u=>SHORTENERS.some(s=>u.toLowerCase().includes(s)));
+  const usedShortener=shortenerUrls.length>0;
+  if(usedShortener){ penalize(14,"high","Link shortener detected","A shortened link (like bit.ly) hides where it really goes, which is exactly what filters distrust. Use a full, branded link on your own domain.",shortenerUrls); }
   if(linkCount>=4){ penalize(Math.min(12,4+(linkCount-4)*2),"medium",`${linkCount} links in one email`,"Cold emails with a pile of links look promotional and land in spam or promotions. For a first touch, aim for one clear link, or none."); }
   else if(linkCount>sentenceCount&&linkCount>=2){ penalize(8,"medium","More links than message","You have more links than sentences. That ratio reads as promotional. Lead with a real message and keep links minimal."); }
 
   const capsWords=words.filter(w=>{const l=w.replace(/[^A-Za-z]/g,""); return l.length>=3&&l===l.toUpperCase()&&/[A-Z]/.test(l);});
   const capsRatio=wordCount?capsWords.length/wordCount:0;
-  if(capsWords.length>=3&&capsRatio>0.06){ penalize(Math.min(12,4+capsWords.length*1.5),"medium","Too much SHOUTING",`${capsWords.length} words are in all caps. Caps read as shouting to people and as spam to filters. Use normal case and let the words carry the weight.`); }
+  if(capsWords.length>=3&&capsRatio>0.06){ penalize(Math.min(12,4+capsWords.length*1.5),"medium","Too much SHOUTING",`${capsWords.length} words are in all caps. Caps read as shouting to people and as spam to filters. Use normal case and let the words carry the weight.`,capsWords); }
 
   const bangCount=(visible.match(/!/g)||[]).length; const streaks=(visible.match(/[!?]{2,}/g)||[]).length;
   if(bangCount>=3||streaks){ penalize(Math.min(10,bangCount*2+streaks*3),"medium","Excessive punctuation","Multiple exclamation marks (or !! and ?!) trip spam filters and read as hype. One exclamation mark, at most."); }
@@ -117,7 +121,7 @@ function analyze(subjectRaw, bodyRaw){
 
   const order={high:0,medium:1,low:2,good:3};
   findings.sort((a,b)=>order[a.severity]-order[b.severity]);
-  return {score,grade,band,stats:{wordCount,sentenceCount,linkCount,isHtml,capsWords:capsWords.length,bangCount},findings};
+  return {score,grade,band,visible,stats:{wordCount,sentenceCount,linkCount,isHtml,capsWords:capsWords.length,bangCount},findings};
 }
 
 // ============================================================

@@ -1,0 +1,16 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Node (only needed if you add tooling later)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Logs
+*.log

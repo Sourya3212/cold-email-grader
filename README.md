@@ -62,5 +62,5 @@ exits with code 0 when everything passes.
 
 Sourya Bhattarai, email deliverability.
 
-- Website: https://souryabhattarai.com.np
+- Live: https://sourya3212.github.io/cold-email-grader/
 - LinkedIn: https://www.linkedin.com/in/sourya-bhattarai/
